@@ -1,0 +1,61 @@
+<!DOCTYPE html><html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Optimized Neon Aura AR</title>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<style>
+body{margin:0;overflow:hidden;background:#050510}canvas,video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+</style>
+</head>
+<body>
+<video class="input_video" autoplay playsinline></video>
+<canvas id="bgCanvas"></canvas>
+<canvas id="mainCanvas"></canvas>
+<script>
+const videoElement=document.querySelector('.input_video');
+const bgCanvas=document.getElementById('bgCanvas');
+const mainCanvas=document.getElementById('mainCanvas');
+const bgCtx=bgCanvas.getContext('2d');
+const ctx=mainCanvas.getContext('2d');
+let width=innerWidth,height=innerHeight,time=0,currentHands=[],particles=[],ripples=[];
+let fps=60,lastDetection=0,frames=0,lastFps=performance.now();
+const isMobile=/Android|iPhone|iPad/i.test(navigator.userAgent);
+const FINGER_TIPS=[4,8,12,16,20];
+function resize(){
+  width=innerWidth;height=innerHeight;
+  const scale=Math.min(devicePixelRatio,1.5);
+  [bgCanvas,mainCanvas].forEach(c=>{c.width=width*scale;c.height=height*scale;c.style.width=width+'px';c.style.height=height+'px';});
+  bgCtx.setTransform(scale,0,0,scale,0,0);ctx.setTransform(scale,0,0,scale,0,0);
+}
+addEventListener('resize',resize);resize();
+function mapToCanvas(p){return{x:p.x*width,y:p.y*height}}
+function createShockwave(pos){if(ripples.length>6)ripples.shift();ripples.push({x:pos.x,y:pos.y,r:0,life:1,max:180});}
+function createParticles(pos,count=1){for(let i=0;i<count&&particles.length<100;i++)particles.push({x:pos.x,y:pos.y,vx:(Math.random()-.5)*6,vy:(Math.random()-.5)*6,life:1});}
+function render(ts){requestAnimationFrame(render);time+=0.016;frames++;if(ts-lastFps>1000){fps=frames;frames=0;lastFps=ts;}
+  bgCtx.fillStyle='rgba(0,0,0,0.18)';bgCtx.fillRect(0,0,width,height);
+  ctx.globalCompositeOperation='destination-out';ctx.fillStyle='rgba(0,0,0,0.2)';ctx.fillRect(0,0,width,height);ctx.globalCompositeOperation='screen';
+  const enableGlow=fps>30;
+  particles=particles.filter(p=>{p.x+=p.vx;p.y+=p.vy;p.vy+=0.1;p.life-=0.03;if(p.life<=0)return false;ctx.globalAlpha=p.life;ctx.beginPath();ctx.arc(p.x,p.y,2,0,6.28);ctx.fillStyle='#00ffcc';ctx.fill();return true;});
+  ripples=ripples.filter(r=>{r.r+=(r.max-r.r)*0.12;r.life-=0.03;if(r.life<=0)return false;ctx.globalAlpha=r.life;ctx.beginPath();ctx.arc(r.x,r.y,r.r,0,6.28);ctx.strokeStyle='#00ffcc';ctx.lineWidth=3*r.life;ctx.stroke();return true;});
+  ctx.globalAlpha=1;
+  currentHands.forEach(hand=>{
+    drawConnectors(ctx,hand,HAND_CONNECTIONS,{color:'#00ffcc',lineWidth:2});
+    ctx.shadowBlur=enableGlow?12:0;ctx.shadowColor='#00ffcc';
+    FINGER_TIPS.forEach(t=>{const pt=mapToCanvas(hand[t]);ctx.beginPath();ctx.arc(pt.x,pt.y,4,0,6.28);ctx.fillStyle='#fff';ctx.fill();if(Math.random()>.88)createParticles(pt);});
+  });
+  ctx.shadowBlur=0;ctx.globalCompositeOperation='source-over';
+}
+async function init(){
+ const hands=new Hands({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`});
+ hands.setOptions({maxNumHands:isMobile?1:2,modelComplexity:0,minDetectionConfidence:0.7,minTrackingConfidence:0.7});
+ hands.onResults(res=>{currentHands=res.multiHandLandmarks||[];if(currentHands[0]){const a=currentHands[0][4],b=currentHands[0][8];const dx=a.x-b.x,dy=a.y-b.y;if(Math.hypot(dx,dy)<0.05)createShockwave(mapToCanvas({x:(a.x+b.x)/2,y:(a.y+b.y)/2}));}});
+ const camera=new Camera(videoElement,{onFrame:async()=>{const now=performance.now();if(now-lastDetection>33){lastDetection=now;await hands.send({image:videoElement});}},width:640,height:480,facingMode:'user'});
+ camera.start();requestAnimationFrame(render);
+}
+init();
+</script>
+</body>
+</html>
